@@ -1,0 +1,5 @@
+# Separazione reale (Demucs). Installa DOPO requirements.txt.
+# Su Mac: spesso conviene installare torch da pytorch.org poi: pip install demucs
+demucs>=4.0.1,<5
+torch>=2.2.0,<2.6
+torchaudio>=2.2.0,<2.6

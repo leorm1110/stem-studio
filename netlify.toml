@@ -1,0 +1,23 @@
+# Netlify = solo sito statico. Per UN SOLO LINK (sito + API insieme) usa invece Docker + Render
+# (Dockerfile e render.yaml nella cartella del progetto): più semplice che Netlify+backend separati.
+
+[build]
+  base = "frontend"
+  command = "npm install && npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Opzione A — Proxy: le richieste a /api/* sul tuo sito Netlify vanno al server backend.
+# Sostituisci l’URL con quello reale del backend (deve essere HTTPS).
+# Così nel build NON serve impostare VITE_API_BASE (lascia vuota).
+# [[redirects]]
+#   from = "/api/*"
+#   to = "https://TUO-BACKEND.onrender.com/api/:splat"
+#   status = 200
+#   force = true
+
+# Opzione B — Senza proxy: in Netlify → Site settings → Environment variables aggiungi
+# VITE_API_BASE = https://TUO-BACKEND.onrender.com
+# (senza slash finale). Poi rilancia il deploy.

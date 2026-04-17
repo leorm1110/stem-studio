@@ -1,0 +1,12 @@
+# Render.com: New → Blueprint → incolla questo file (o collega il repo).
+# Un solo servizio Web: apri l’URL che ti dà Render, senza Netlify separato.
+
+services:
+  - type: web
+    name: stem-studio
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      - key: DEMUCS_SHIFTS
+        value: "10"
