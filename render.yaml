@@ -5,6 +5,9 @@ services:
   - type: web
     name: stem-studio
     runtime: docker
+    # Senza "plan" Render usa starter (~7 USD/mese). "free" = 0 USD con limiti (512MB RAM, sleep dopo inattività).
+    plan: free
+    region: frankfurt
     dockerfilePath: ./Dockerfile
     dockerContext: .
     envVars:
