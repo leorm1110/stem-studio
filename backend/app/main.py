@@ -25,6 +25,7 @@ from app.ffmpeg_utils import (
     normalize_to_wav_48k_stereo,
     probe_duration_seconds,
 )
+from app.lalal_client import lalal_configured
 from app.separation import (
     DEMUCS_MODELS,
     demucs_cli_ok,
@@ -105,10 +106,13 @@ def health() -> dict:
 def capabilities() -> dict:
     return {
         "demucs_ready": demucs_cli_ok(),
+        "lalal_configured": lalal_configured(),
         "ffmpeg_ok": shutil.which("ffmpeg") is not None,
         "models": DEMUCS_MODELS,
         "demucs_shifts": os.environ.get("DEMUCS_SHIFTS", "10"),
-        "hint": "Un solo sito: avvia questo server con la cartella frontend compilata in STEM_STATIC_DIR (vedi Dockerfile).",
+        "stem_backend_order": os.environ.get("STEM_BACKEND_ORDER", "demucs,lalal,demo"),
+        "hint": "Un solo sito: avvia questo server con la cartella frontend compilata in STEM_STATIC_DIR (vedi Dockerfile). "
+        "Per separazione in cloud senza GPU: imposta LALAL_LICENSE_KEY (LALAL.AI API v1).",
     }
 
 
@@ -158,7 +162,9 @@ def analyze_session(job_id: str) -> dict:
         "duration_sec": duration,
         "modes": DEMUCS_MODELS,
         "demucs_ready": demucs_cli_ok(),
-        "demucs_hint": "Se demucs_ready è false, l’app userà stem demo (copie del mix). Installa requirements-ml.txt o usa Docker.",
+        "lalal_configured": lalal_configured(),
+        "demucs_hint": "Se demucs_ready è false e non c’è LALAL_LICENSE_KEY, l’app userà stem demo (copie del mix). "
+        "Per qualità reale: Demucs locale/Docker oppure chiave API LALAL.AI.",
     }
 
 
@@ -170,13 +176,14 @@ def _separation_worker(job_id: str, model_id: str) -> None:
     job_root = _job_dir(job_id)
     wav = job_root / "working.wav"
     try:
-        stems, used_demucs, sep_warning = separate(wav, job_root, model_id, prefer_demucs=True)
+        stems, used_demucs, sep_warning, engine = separate(wav, job_root, model_id, prefer_demucs=True)
         manifest = write_manifest(job_root, stems)
         meta = _read_job_meta(job_id)
         meta["status"] = "separated"
         meta["stems"] = {k: str(Path(v).name) for k, v in stems.items()}
         meta["manifest"] = str(manifest.relative_to(job_root))
         meta["used_demucs"] = used_demucs
+        meta["separation_engine"] = engine
         meta["separation_warning"] = sep_warning
         _write_job_meta(job_id, meta)
     except Exception as e:
@@ -204,6 +211,7 @@ def run_separate(job_id: str, body: SeparateRequest) -> dict:
     meta["model_id"] = model_id
     meta.pop("error", None)
     meta.pop("separation_warning", None)
+    meta.pop("separation_engine", None)
     _write_job_meta(job_id, meta)
 
     threading.Thread(target=_separation_worker, args=(job_id, model_id), daemon=True).start()
@@ -232,6 +240,7 @@ def separation_status(job_id: str) -> dict[str, Any]:
         else:
             out["stems"] = []
         out["used_demucs"] = meta.get("used_demucs")
+        out["separation_engine"] = meta.get("separation_engine")
         out["separation_warning"] = meta.get("separation_warning")
         out["manifest"] = meta.get("manifest")
         out["percent"] = 100

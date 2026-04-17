@@ -5,9 +5,11 @@ export async function fetchCapabilities() {
   if (!res.ok) throw new Error(await res.text());
   return res.json() as Promise<{
     demucs_ready: boolean;
+    lalal_configured: boolean;
     ffmpeg_ok: boolean;
     models: { id: string; label: string; stems: string[]; description: string }[];
     demucs_shifts: string;
+    stem_backend_order: string;
     hint: string;
   }>;
 }
@@ -28,6 +30,7 @@ export async function analyzeSession(jobId: string) {
     duration_sec: number;
     modes: { id: string; label: string; stems: string[]; description: string }[];
     demucs_ready: boolean;
+    lalal_configured: boolean;
     demucs_hint: string;
   }>;
 }
@@ -56,6 +59,7 @@ export async function getSeparationStatus(jobId: string) {
     message: string;
     stems?: string[];
     used_demucs?: boolean;
+    separation_engine?: string | null;
     separation_warning?: string | null;
     manifest?: string;
     error?: string;

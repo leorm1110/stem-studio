@@ -73,6 +73,7 @@ export function StudioFlow() {
   const [serverCaps, setServerCaps] = useState<Awaited<ReturnType<typeof fetchCapabilities>> | null>(null);
   const [capsErr, setCapsErr] = useState<string | null>(null);
   const [separationWarning, setSeparationWarning] = useState<string | null>(null);
+  const [separationEngine, setSeparationEngine] = useState<string | null>(null);
   const [separating, setSeparating] = useState(false);
   const [separatePercent, setSeparatePercent] = useState(0);
   const [separateMessage, setSeparateMessage] = useState("");
@@ -204,6 +205,7 @@ export function StudioFlow() {
       setStems([]);
       setUsedDemucs(null);
       setSeparationWarning(null);
+      setSeparationEngine(null);
       setSeparatePercent(0);
       setSeparateMessage("");
     } catch (ex) {
@@ -293,6 +295,7 @@ export function StudioFlow() {
           for (const n of st.stems) init[n] = 1;
           setGainMap(init);
           setUsedDemucs(st.used_demucs ?? null);
+          setSeparationEngine(st.separation_engine ?? null);
           setSeparationWarning(st.separation_warning ?? null);
           setPhase("separated");
           setSeparatePercent(100);
@@ -370,13 +373,22 @@ export function StudioFlow() {
   return (
     <>
       {capsErr ? <div className="alert alert-warning">{capsErr}</div> : null}
-      {serverCaps && !serverCaps.demucs_ready ? (
+      {serverCaps && !serverCaps.demucs_ready && !(serverCaps.lalal_configured ?? false) ? (
         <div className="alert alert-warning">
-          <strong>Modalità qualità ridotta (demo).</strong> Sul server non risulta installato Demucs con PyTorch: le
-          “tracce” sono copie del brano intero, quindi <strong>i fader non possono isolare davvero voce o batteria</strong>
-          . Per la qualità professionale installa sul computer/server i pacchetti in{" "}
-          <code style={{ fontSize: "0.85em" }}>backend/requirements-ml.txt</code> oppure usa il deploy con{" "}
-          <code style={{ fontSize: "0.85em" }}>Dockerfile</code> (Demucs incluso).
+          <strong>Modalità qualità ridotta (demo).</strong> Sul server non risulta installato Demucs con PyTorch e non è
+          configurata l’API LALAL.AI: le “tracce” sono copie del brano intero, quindi{" "}
+          <strong>i fader non possono isolare davvero voce o batteria</strong>. Per la qualità professionale: installa i
+          pacchetti in <code style={{ fontSize: "0.85em" }}>backend/requirements-ml.txt</code>, usa il{" "}
+          <code style={{ fontSize: "0.85em" }}>Dockerfile</code> (Demucs incluso), oppure imposta sul server la variabile{" "}
+          <code style={{ fontSize: "0.85em" }}>LALAL_LICENSE_KEY</code> (piano e minuti su{" "}
+          <a href="https://www.lalal.ai/api/">lalal.ai/api</a>).
+        </div>
+      ) : null}
+      {serverCaps && (serverCaps.lalal_configured ?? false) ? (
+        <div className="alert alert-info">
+          <strong>LALAL.AI (cloud)</strong> è configurata sul server: se Demucs non è disponibile o fallisce, la separazione
+          può usare il cloud (ordine: <code style={{ fontSize: "0.85em" }}>{serverCaps.stem_backend_order}</code>). Le
+          chiavi restano solo sul server; non metterle nel frontend.
         </div>
       ) : null}
       {serverCaps && serverCaps.demucs_ready ? (
@@ -489,14 +501,21 @@ export function StudioFlow() {
               </div>
               {separateMessage ? <div className="progress-detail">{separateMessage}</div> : null}
               <p className="muted" style={{ marginTop: "0.5rem", fontSize: "0.82rem" }}>
-                La percentuale arriva dall’output di Demucs quando disponibile; all’inizio può restare bassa per diversi
-                minuti mentre il modello lavora senza aggiornare la barra.
+                {serverCaps?.lalal_configured && !serverCaps?.demucs_ready
+                  ? "Con LALAL.AI la barra segue lo stato riportato dall’API cloud durante upload ed elaborazione."
+                  : "La percentuale arriva dall’output di Demucs quando disponibile; all’inizio può restare bassa per diversi minuti mentre il modello lavora senza aggiornare la barra."}
               </p>
             </div>
           ) : null}
-          {usedDemucs === false ? (
+          {usedDemucs === false && separationEngine !== "lalal" ? (
             <p className="muted" style={{ marginTop: "0.65rem" }}>
-              Separazione in modalità demo: vedi l’avviso giallo in alto per installare Demucs sul server.
+              Separazione in modalità demo: vedi l’avviso giallo in alto per Demucs o LALAL.AI sul server.
+            </p>
+          ) : null}
+          {separationEngine === "lalal" ? (
+            <p className="muted" style={{ marginTop: "0.65rem" }}>
+              Stem generati tramite <strong>LALAL.AI</strong> (cloud). I minuti di processing sono conteggiati dal tuo
+              piano LALAL.
             </p>
           ) : null}
         </section>
@@ -509,6 +528,11 @@ export function StudioFlow() {
             <div className="alert alert-warning" style={{ marginBottom: "0.85rem" }}>
               {separationWarning}
             </div>
+          ) : null}
+          {separationEngine === "lalal" && !separationWarning ? (
+            <p className="muted" style={{ marginBottom: "0.85rem" }}>
+              Mixer con stem da LALAL.AI (qualità e artefatti dipendono dal brano e dal preset multistem).
+            </p>
           ) : null}
           <p className="muted">Regola i volumi come in una DAW; poi esporta.</p>
           <div className="transport">

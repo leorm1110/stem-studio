@@ -13,3 +13,5 @@ services:
     envVars:
       - key: DEMUCS_SHIFTS
         value: "10"
+      # Opzionale (meglio come Secret nel dashboard Render): LALAL_LICENSE_KEY — separazione stem via LALAL.AI API v1
+      # Opzionale: STEM_BACKEND_ORDER=lalal,demucs,demo — cloud prima (utile se Demucs non parte sul piano Free)

@@ -7,9 +7,12 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import wave
 from pathlib import Path
 from typing import Any
+
+from app.lalal_client import lalal_configured, run_lalal_separation
 
 logger = logging.getLogger(__name__)
 
@@ -197,16 +200,25 @@ def _demo_stems(wav_in: Path, stems_dir: Path, stem_names: list[str]) -> dict[st
     return out
 
 
+def _backend_order() -> list[str]:
+    raw = os.environ.get("STEM_BACKEND_ORDER", "demucs,lalal,demo").lower().strip()
+    allowed = {"demucs", "lalal", "demo"}
+    parts = [p.strip() for p in raw.split(",") if p.strip() in allowed]
+    return parts if parts else ["demucs", "lalal", "demo"]
+
+
 def separate(
     wav_in: Path,
     job_dir: Path,
     model_id: str,
     prefer_demucs: bool = True,
-) -> tuple[dict[str, Path], bool, str | None]:
+) -> tuple[dict[str, Path], bool, str | None, str]:
     """
-    Ritorna (stems, used_demucs, warning_message).
+    Ritorna (stems, used_demucs, warning_message, engine).
+    engine: "demucs" | "lalal" | "demo"
+    used_demucs è True solo se è stato usato Demucs locale.
     warning_message valorizzata in modalità demo.
-    Aggiorna separation_progress.json durante l’elaborazione.
+    Ordine backend: variabile STEM_BACKEND_ORDER (default demucs,lalal,demo).
     """
     stems_dir = job_dir / "stems"
     model = next((m for m in DEMUCS_MODELS if m["id"] == model_id), DEMUCS_MODELS[0])
@@ -217,33 +229,53 @@ def separate(
     if stems_dir.exists():
         shutil.rmtree(stems_dir, ignore_errors=True)
 
-    if prefer_demucs and demucs_cli_ok():
-        try:
-            raw = job_dir / "demucs_raw"
-            if raw.exists():
-                shutil.rmtree(raw, ignore_errors=True)
-            found = _run_demucs_streaming(model_id, wav_in, raw, names, job_dir)
-            stems_dir.mkdir(parents=True, exist_ok=True)
-            out: dict[str, Path] = {}
-            for stem, src in found.items():
-                dest = stems_dir / f"{stem}.wav"
-                shutil.copy2(src, dest)
-                out[stem] = dest
-            write_separation_progress(job_dir, 100, "Completato.")
-            return out, True, None
-        except Exception as exc:
-            logger.warning("Demucs non riuscito, passo a modalità demo: %s", exc)
-            write_separation_progress(job_dir, 6, f"Demucs fallito, uso demo: {exc}"[:300])
+    for backend in _backend_order():
+        if backend == "demucs" and prefer_demucs and demucs_cli_ok():
+            try:
+                raw = job_dir / "demucs_raw"
+                if raw.exists():
+                    shutil.rmtree(raw, ignore_errors=True)
+                found = _run_demucs_streaming(model_id, wav_in, raw, names, job_dir)
+                stems_dir.mkdir(parents=True, exist_ok=True)
+                out: dict[str, Path] = {}
+                for stem, src in found.items():
+                    dest = stems_dir / f"{stem}.wav"
+                    shutil.copy2(src, dest)
+                    out[stem] = dest
+                write_separation_progress(job_dir, 100, "Completato.")
+                return out, True, None, "demucs"
+            except Exception as exc:
+                logger.warning("Demucs non riuscito, provo altri backend: %s", exc)
+                write_separation_progress(job_dir, 5, f"Demucs fallito: {exc}"[:280])
+                continue
 
-    demo_msg = (
-        "Separazione DEMO: ogni traccia è una copia IDENTICA del brano intero. "
-        "Per questo abbassare un singolo fader non “toglie” strumenti diversi (senti ancora tutto dagli altri canali). "
-        "Installa sul server Demucs + PyTorch (vedi requirements-ml.txt) oppure usa il deploy Docker."
-    )
+        if backend == "lalal" and lalal_configured():
+            try:
+                out = run_lalal_separation(wav_in, job_dir, model_id, names)
+                write_separation_progress(job_dir, 100, "Completato (LALAL.AI).")
+                return out, False, None, "lalal"
+            except Exception as exc:
+                logger.warning("LALAL.AI non riuscito: %s", exc)
+                write_separation_progress(job_dir, 8, f"LALAL.AI: {exc}"[:280])
+                continue
+
+        if backend == "demo":
+            demo_msg = (
+                "Separazione DEMO: ogni traccia è una copia IDENTICA del brano intero. "
+                "Per questo abbassare un singolo fader non “toglie” strumenti diversi (senti ancora tutto dagli altri canali). "
+                "Installa Demucs + PyTorch (requirements-ml.txt / Docker), imposta LALAL_LICENSE_KEY per LALAL.AI in cloud, "
+                "oppure controlla STEM_BACKEND_ORDER."
+            )
+            write_separation_progress(job_dir, 40, "Separazione in modalità demo (istantanea)…")
+            result = _demo_stems(wav_in, stems_dir, names)
+            write_separation_progress(job_dir, 100, "Completato (demo).")
+            return result, False, demo_msg, "demo"
+
+    demo_msg = "Nessun backend disponibile: uso modalità demo."
     write_separation_progress(job_dir, 40, "Separazione in modalità demo (istantanea)…")
     result = _demo_stems(wav_in, stems_dir, names)
     write_separation_progress(job_dir, 100, "Completato (demo).")
-    return result, False, demo_msg
+    return result, False, demo_msg, "demo"
 
 
 def write_manifest(job_dir: Path, stems: dict[str, Path]) -> Path:
